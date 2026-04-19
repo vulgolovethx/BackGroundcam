@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#121212">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="📹 Background Camera"
+        android:textSize="24sp"
+        android:textColor="#FFFFFF"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="A câmera continua gravando\nmesmo com outros apps abertos"
+        android:textSize="14sp"
+        android:textColor="#AAAAAA"
+        android:gravity="center"
+        android:layout_marginBottom="48dp" />
+
+    <TextView
+        android:id="@+id/tvStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚪ Pronto para gravar"
+        android:textSize="16sp"
+        android:textColor="#AAAAAA"
+        android:layout_marginBottom="32dp" />
+
+    <Button
+        android:id="@+id/btnStart"
+        android:layout_width="240dp"
+        android:layout_height="56dp"
+        android:text="▶  Iniciar Gravação"
+        android:textSize="16sp"
+        android:backgroundTint="#E53935"
+        android:layout_marginBottom="16dp" />
+
+    <Button
+        android:id="@+id/btnStop"
+        android:layout_width="240dp"
+        android:layout_height="56dp"
+        android:text="⏹  Parar e Salvar"
+        android:textSize="16sp"
+        android:backgroundTint="#424242"
+        android:enabled="false" />
+
+    <TextView
+        android:id="@+id/tvFilePath"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text=""
+        android:textSize="12sp"
+        android:textColor="#66BB6A"
+        android:gravity="center"
+        android:layout_marginTop="32dp"
+        android:fontFamily="monospace" />
+
+</LinearLayout>
