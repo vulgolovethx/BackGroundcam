@@ -104,15 +104,13 @@ class CameraRecordingService : Service() {
     }
 
     private fun startRecording() {
-        try {
-            outputFilePath = createOutputFile()
-            setupMediaRecorder(outputFilePath!!)
-            openCamera()
-        } catch (e: Exception) {
-            Log.e(TAG, "Erro ao iniciar gravação: ${e.message}", e)
-            broadcastError("Erro ao iniciar gravação: ${e.message}")
-            stopSelf()
-        }
+    private fun createOutputFile(): String {
+        val moviesDir = Environment.getExternalStoragePublicDirectory(
+            Environment.DIRECTORY_DCIM
+        ).also { it.mkdirs() }
+        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
+        val file = File(moviesDir, "VID_$timestamp.mp4")
+        return file.absolutePath
     }
 
     private fun createOutputFile(): String {
