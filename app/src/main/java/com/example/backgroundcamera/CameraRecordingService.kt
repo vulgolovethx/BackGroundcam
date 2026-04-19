@@ -9,10 +9,13 @@ import android.content.Context
 import android.content.Intent
 import android.hardware.camera2.*
 import android.media.MediaRecorder
+import android.media.MediaScannerConnection
+import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.os.IBinder
 import android.util.Log
+import android.view.Surface
 import androidx.core.app.NotificationCompat
 import java.io.File
 import java.text.SimpleDateFormat
@@ -24,11 +27,15 @@ class CameraRecordingService : Service() {
         private const val TAG = "CameraRecordingService"
         const val CHANNEL_ID = "camera_recording_channel"
         const val NOTIFICATION_ID = 1001
+        private const val NOTIFICATION_ID_SAVED = 1002
+
         const val ACTION_START = "ACTION_START_RECORDING"
         const val ACTION_STOP = "ACTION_STOP_RECORDING"
+
         const val BROADCAST_STATUS = "com.example.backgroundcamera.RECORDING_STATUS"
         const val EXTRA_IS_RECORDING = "is_recording"
         const val EXTRA_FILE_PATH = "file_path"
+        const val EXTRA_CONTENT_URI = "content_uri"
         const val EXTRA_ERROR = "error"
     }
 
@@ -41,15 +48,18 @@ class CameraRecordingService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        Log.d(TAG, "Service criado")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                Log.d(TAG, "Recebido ACTION_START")
                 startForegroundWithNotification()
                 startRecording()
             }
             ACTION_STOP -> {
+                Log.d(TAG, "Recebido ACTION_STOP")
                 stopRecording()
                 stopSelf()
             }
@@ -62,6 +72,7 @@ class CameraRecordingService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         stopRecording()
+        Log.d(TAG, "Service destruído")
     }
 
     private fun createNotificationChannel() {
@@ -73,24 +84,22 @@ class CameraRecordingService : Service() {
             ).apply {
                 description = "Câmera gravando em segundo plano"
             }
-            val manager = getSystemService(NotificationManager::class.java)
-            manager.createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun startForegroundWithNotification() {
-        val stopIntent = Intent(this, CameraRecordingService::class.java).apply {
-            action = ACTION_STOP
-        }
         val stopPendingIntent = PendingIntent.getService(
-            this, 0, stopIntent,
+            this, 0,
+            Intent(this, CameraRecordingService::class.java).apply { action = ACTION_STOP },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val openAppIntent = Intent(this, MainActivity::class.java)
         val openAppPendingIntent = PendingIntent.getActivity(
-            this, 1, openAppIntent,
+            this, 1,
+            Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("📹 Gravando em segundo plano")
             .setContentText("Toque para abrir o app")
@@ -99,7 +108,42 @@ class CameraRecordingService : Service() {
             .addAction(android.R.drawable.ic_media_pause, "Parar gravação", stopPendingIntent)
             .setOngoing(true)
             .build()
+
         startForeground(NOTIFICATION_ID, notification)
+    }
+
+    /**
+     * Exibe notificação de conclusão. Toque abre o vídeo diretamente no player.
+     */
+    private fun showRecordingSavedNotification(filePath: String, videoUri: Uri?) {
+        val openIntent = if (videoUri != null) {
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(videoUri, "video/mp4")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        } else {
+            Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            this, 2, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setContentTitle("✅ Vídeo salvo!")
+            .setContentText(File(filePath).name)
+            .setSubText("Toque para reproduzir")
+            .setSmallIcon(android.R.drawable.ic_menu_save)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID_SAVED, notification)
+        Log.d(TAG, "Notificação de vídeo salvo exibida")
     }
 
     private fun startRecording() {
@@ -114,12 +158,20 @@ class CameraRecordingService : Service() {
         }
     }
 
+    /**
+     * Salva em /storage/emulated/0/Movies/BackgroundCam/ (pasta pública).
+     * Visível em qualquer gerenciador de arquivos e na galeria após indexação.
+     * O arquivo persiste mesmo após desinstalar o app.
+     */
     private fun createOutputFile(): String {
-        val moviesDir = Environment.getExternalStoragePublicDirectory(
-            Environment.DIRECTORY_DCIM
+        val moviesDir = File(
+            Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+            "BackgroundCam"
         ).also { it.mkdirs() }
+
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val file = File(moviesDir, "VID_$timestamp.mp4")
+        Log.d(TAG, "Arquivo de saída: ${file.absolutePath}")
         return file.absolutePath
     }
 
@@ -130,6 +182,7 @@ class CameraRecordingService : Service() {
             @Suppress("DEPRECATION")
             MediaRecorder()
         }
+
         mediaRecorder!!.apply {
             setAudioSource(MediaRecorder.AudioSource.MIC)
             setVideoSource(MediaRecorder.VideoSource.SURFACE)
@@ -142,28 +195,30 @@ class CameraRecordingService : Service() {
             setOutputFile(outputPath)
             prepare()
         }
+
+        Log.d(TAG, "MediaRecorder configurado")
     }
 
     private fun openCamera() {
         val cameraManager = getSystemService(Context.CAMERA_SERVICE) as CameraManager
         val cameraId = cameraManager.cameraIdList.firstOrNull { id ->
-            val characteristics = cameraManager.getCameraCharacteristics(id)
-            characteristics.get(CameraCharacteristics.LENS_FACING) ==
-                    CameraCharacteristics.LENS_FACING_BACK
+            cameraManager.getCameraCharacteristics(id)
+                .get(CameraCharacteristics.LENS_FACING) == CameraCharacteristics.LENS_FACING_BACK
         } ?: throw IllegalStateException("Câmera traseira não encontrada")
 
         cameraManager.openCamera(cameraId, object : CameraDevice.StateCallback() {
             override fun onOpened(camera: CameraDevice) {
+                Log.d(TAG, "Câmera aberta com sucesso")
                 cameraDevice = camera
                 startCaptureSession()
             }
             override fun onDisconnected(camera: CameraDevice) {
-                camera.close()
-                cameraDevice = null
+                Log.w(TAG, "Câmera desconectada")
+                camera.close(); cameraDevice = null
             }
             override fun onError(camera: CameraDevice, error: Int) {
-                camera.close()
-                cameraDevice = null
+                Log.e(TAG, "Erro na câmera: $error")
+                camera.close(); cameraDevice = null
                 broadcastError("Erro na câmera: código $error")
                 stopSelf()
             }
@@ -179,22 +234,25 @@ class CameraRecordingService : Service() {
             listOf(recorderSurface),
             object : CameraCaptureSession.StateCallback() {
                 override fun onConfigured(session: CameraCaptureSession) {
+                    Log.d(TAG, "Sessão configurada, iniciando gravação")
                     captureSession = session
-                    val captureRequest = camera.createCaptureRequest(
-                        CameraDevice.TEMPLATE_RECORD
-                    ).apply {
+
+                    val captureRequest = camera.createCaptureRequest(CameraDevice.TEMPLATE_RECORD).apply {
                         addTarget(recorderSurface)
                         set(
                             CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE,
                             CaptureRequest.CONTROL_VIDEO_STABILIZATION_MODE_ON
                         )
                     }.build()
+
                     session.setRepeatingRequest(captureRequest, null, null)
                     recorder.start()
                     isRecording = true
                     broadcastStatus(isRecording = true)
+                    Log.d(TAG, "✅ Gravação iniciada!")
                 }
                 override fun onConfigureFailed(session: CameraCaptureSession) {
+                    Log.e(TAG, "Falha ao configurar sessão")
                     broadcastError("Falha ao configurar sessão de câmera")
                     stopSelf()
                 }
@@ -203,39 +261,79 @@ class CameraRecordingService : Service() {
         )
     }
 
+    /**
+     * Para a gravação, indexa o arquivo no MediaStore para aparecer na galeria
+     * e exibe uma notificação com atalho direto para o vídeo.
+     */
     private fun stopRecording() {
         if (!isRecording) return
         isRecording = false
+
         try {
             captureSession?.stopRepeating()
             captureSession?.close()
             captureSession = null
+
             mediaRecorder?.stop()
             mediaRecorder?.reset()
             mediaRecorder?.release()
             mediaRecorder = null
+
             cameraDevice?.close()
             cameraDevice = null
-            broadcastStatus(isRecording = false, filePath = outputFilePath)
+
+            Log.d(TAG, "✅ Gravação salva em: $outputFilePath")
+
+            outputFilePath?.let { indexVideoInGallery(it) }
+                ?: broadcastStatus(isRecording = false)
+
         } catch (e: Exception) {
+            Log.e(TAG, "Erro ao parar gravação: ${e.message}", e)
             broadcastError("Erro ao parar: ${e.message}")
         }
     }
 
-    private fun broadcastStatus(isRecording: Boolean, filePath: String? = null) {
-        val intent = Intent(BROADCAST_STATUS).apply {
+    /**
+     * Registra o vídeo no MediaStore do sistema.
+     * Após isso o arquivo aparece em galeria, Google Fotos, etc.
+     * O callback retorna um content:// URI estável para abrir o vídeo.
+     */
+    private fun indexVideoInGallery(filePath: String) {
+        MediaScannerConnection.scanFile(
+            this,
+            arrayOf(filePath),
+            arrayOf("video/mp4")
+        ) { scannedPath, contentUri ->
+            Log.d(TAG, "Vídeo indexado: $scannedPath | URI: $contentUri")
+
+            // Informa a Activity: gravação parou, arquivo pronto para abrir
+            broadcastStatus(
+                isRecording = false,
+                filePath = scannedPath ?: filePath,
+                contentUri = contentUri?.toString()
+            )
+
+            // Notificação de conclusão — toque abre o vídeo no player
+            showRecordingSavedNotification(scannedPath ?: filePath, contentUri)
+        }
+    }
+
+    private fun broadcastStatus(
+        isRecording: Boolean,
+        filePath: String? = null,
+        contentUri: String? = null
+    ) {
+        sendBroadcast(Intent(BROADCAST_STATUS).apply {
             putExtra(EXTRA_IS_RECORDING, isRecording)
             filePath?.let { putExtra(EXTRA_FILE_PATH, it) }
-        }
-        sendBroadcast(intent)
+            contentUri?.let { putExtra(EXTRA_CONTENT_URI, it) }
+        })
     }
 
     private fun broadcastError(message: String) {
-        val intent = Intent(BROADCAST_STATUS).apply {
+        sendBroadcast(Intent(BROADCAST_STATUS).apply {
             putExtra(EXTRA_IS_RECORDING, false)
             putExtra(EXTRA_ERROR, message)
-        }
-        sendBroadcast(intent)
-
+        })
     }
 }
