@@ -1,1 +1,2 @@
-# BackGroundcam
+# BackGroundCamera
+Entediante ficar gravando algo que não quer né? Jogar algo é mais interessante...
